@@ -108,9 +108,17 @@ def fit_var(df: pd.DataFrame) -> tuple:
     stat_df = stat_df.dropna()
 
     model = VAR(stat_df)
-    lag_results = model.select_order(maxlags=min(MAX_LAGS, len(stat_df) // 5))
-    selected_lag = lag_results.aic or 3
-    selected_lag = max(3, min(int(selected_lag), 8))
+    n_obs = len(stat_df)
+    n_vars = len(available)
+    max_feasible = max(1, (n_obs - n_vars) // (n_vars * 2 + 1) - 1)
+    safe_maxlags = min(MAX_LAGS, max_feasible, n_obs // 10)
+    safe_maxlags = max(1, safe_maxlags)
+    try:
+        lag_results = model.select_order(maxlags=safe_maxlags)
+        selected_lag = lag_results.aic or 3
+    except Exception:
+        selected_lag = 3
+    selected_lag = max(1, min(int(selected_lag), safe_maxlags))
 
     result = model.fit(selected_lag)
     return result, stat_df, diffs, selected_lag, available
