@@ -13,7 +13,11 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from data_fetcher import build_dataset, fetch_live_prices, LIVE_TICKERS, SENASICA_QRO_UNITS
+from data_fetcher import (
+    build_dataset, fetch_live_prices, LIVE_TICKERS,
+    SENASICA_QRO_UNITS, SENASICA_JUNE_2025, SENASICA_DEC_2025,
+    _SENASICA_NATIONAL_JUNE, _SENASICA_NATIONAL_DEC, _SENASICA_NATIONAL_SURGE,
+)
 from model import (
     adf_summary, run_granger, compute_irf,
     forecast_12m, run_all_scenarios, SCENARIOS
@@ -81,19 +85,22 @@ with st.sidebar:
 
     st.markdown("### 🐔 Supply pressure")
     st.caption(
-        "📋 **SENASICA real data (Querétaro):**  \n"
-        "Jun 2025 → **659 units** | Dec 2025 → **958 units** (+45%)"
+        "📋 **SENASICA real data (32 estados):**  \n"
+        f"Jun 2025 → **{_SENASICA_NATIONAL_JUNE:,} units** | "
+        f"Dec 2025 → **{_SENASICA_NATIONAL_DEC:,} units** "
+        f"(**+{_SENASICA_NATIONAL_SURGE*100:.0f}% nacional**)"
     )
     supply_pressure = st.slider(
         "Market oversupply vs. normal (%)",
-        min_value=-20, max_value=50, value=45, step=5,
+        min_value=-20, max_value=75, value=55, step=5,
         help=(
-            "Calibrated from real SENASICA data:\n"
-            "Querétaro registered poultry units grew +45% in just 6 months "
-            "(659 in Jun 2025 → 958 in Dec 2025).\n\n"
-            "0%  = balanced / normal market.\n"
-            "+45% = documented saturation level (default).\n"
-            "+50% = extreme oversupply.\n"
+            "Calibrated from real SENASICA national data (32 states):\n"
+            f"• Jun 2025: {_SENASICA_NATIONAL_JUNE:,} registered poultry units nationally\n"
+            f"• Dec 2025: {_SENASICA_NATIONAL_DEC:,} units → +{_SENASICA_NATIONAL_SURGE*100:.0f}% surge\n"
+            "• Querétaro specifically: 659 → 958 (+45%) — below national avg\n\n"
+            "0%  = balanced market.\n"
+            "+55% = national average surge (default — recommended).\n"
+            "+75% = extreme oversupply.\n"
             "Negative = undersupply / shortage."
         )
     )
@@ -405,6 +412,52 @@ with tab1:
             "Registered poultry production units, all functions. "
             "Tonnage proxy = units × estimated avg. flock output."
         )
+
+    # National state comparison chart
+    st.markdown("#### 🗺️ National supply surge by state — Jun vs Dec 2025")
+    st.caption(
+        f"All 32 states · National total: {_SENASICA_NATIONAL_JUNE:,} → "
+        f"{_SENASICA_NATIONAL_DEC:,} units (**+{_SENASICA_NATIONAL_SURGE*100:.1f}%**) · "
+        "Source: SENASICA / datos.gob.mx"
+    )
+    states = sorted(SENASICA_DEC_2025.keys(), key=lambda s: SENASICA_DEC_2025[s])
+    june_vals = [SENASICA_JUNE_2025[s] for s in states]
+    dec_vals  = [SENASICA_DEC_2025[s]  for s in states]
+    surge_pct = [(SENASICA_DEC_2025[s] - SENASICA_JUNE_2025[s]) / SENASICA_JUNE_2025[s] * 100
+                 for s in states]
+    bar_colors_dec = [
+        BRAND_RED if s == "Querétaro" else BRAND_BLUE
+        for s in states
+    ]
+    bar_colors_jun = [
+        "#8B1A1A" if s == "Querétaro" else "#1A4A6B"
+        for s in states
+    ]
+    fig_states = go.Figure()
+    fig_states.add_trace(go.Bar(
+        y=states, x=june_vals, orientation="h",
+        name="Jun 2025", marker_color=bar_colors_jun,
+        hovertemplate="%{y}: %{x} units (Jun 2025)<extra></extra>",
+    ))
+    fig_states.add_trace(go.Bar(
+        y=states, x=dec_vals, orientation="h",
+        name="Dec 2025", marker_color=bar_colors_dec,
+        opacity=0.85,
+        hovertemplate="%{y}: %{x} units (Dec 2025)<extra></extra>",
+        customdata=surge_pct,
+        text=[f"+{p:.0f}%" for p in surge_pct],
+        textposition="outside",
+        textfont=dict(size=9),
+    ))
+    fig_states.update_layout(
+        barmode="overlay",
+        title="Registered poultry production units by state (🔴 = Querétaro)",
+        xaxis_title="Number of registered units",
+        template="plotly_dark", height=750,
+        legend=dict(orientation="h", y=-0.04),
+        margin=dict(r=60),
+    )
+    st.plotly_chart(fig_states, use_container_width=True)
 
     # ADF stationarity
     with st.expander("Stationarity tests (ADF)"):

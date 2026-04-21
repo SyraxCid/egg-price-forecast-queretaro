@@ -215,23 +215,57 @@ def generate_egg_prices(commodities: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ── Real SENASICA anchor data ─────────────────────────────────────────────────
+# ── Real SENASICA anchor data — ALL STATES ───────────────────────────────────
 # Source: datos.gob.mx / SENASICA "Unidades de producción avícola registradas"
-# Querétaro registered poultry production units — two published snapshots.
-SENASICA_QRO_UNITS = {
-    "2025-06": 659,   # June 2025  (archivo: 62_unidades-produccion-aves.csv)
-    "2025-12": 958,   # Dec  2025  (archivo: up_aves_enero_diciembre.csv)
+# Two published snapshots; national totals used for calibration.
+
+SENASICA_JUNE_2025 = {
+    "Aguascalientes": 295, "Baja California": 439, "Baja California Sur": 494,
+    "Campeche": 136, "Chiapas": 500, "Chihuahua": 523, "Coahuila": 946,
+    "Colima": 179, "Ciudad de México": 140, "Durango": 447,
+    "Estado de México": 2265, "Guanajuato": 2399, "Guerrero": 278,
+    "Hidalgo": 512, "Jalisco": 1442, "Michoacán": 695, "Morelos": 415,
+    "Nayarit": 157, "Nuevo León": 332, "Oaxaca": 394, "Puebla": 814,
+    "Querétaro": 659, "Quintana Roo": 214, "San Luis Potosí": 362,
+    "Sinaloa": 498, "Sonora": 1016, "Tabasco": 122, "Tamaulipas": 301,
+    "Tlaxcala": 185, "Veracruz": 1879, "Yucatán": 330, "Zacatecas": 307,
 }
-_SENASICA_BASELINE_UNITS = 420   # estimated pre-2024 normal level (2019-2023)
+
+SENASICA_DEC_2025 = {
+    "Aguascalientes": 404, "Baja California": 622, "Baja California Sur": 570,
+    "Campeche": 231, "Chiapas": 677, "Chihuahua": 599, "Coahuila": 1038,
+    "Colima": 233, "Ciudad de México": 773, "Durango": 497,
+    "Estado de México": 2832, "Guanajuato": 5795, "Guerrero": 325,
+    "Hidalgo": 648, "Jalisco": 3409, "Michoacán": 1008, "Morelos": 469,
+    "Nayarit": 189, "Nuevo León": 496, "Oaxaca": 451, "Puebla": 1252,
+    "Querétaro": 958, "Quintana Roo": 302, "San Luis Potosí": 432,
+    "Sinaloa": 673, "Sonora": 1810, "Tabasco": 247, "Tamaulipas": 409,
+    "Tlaxcala": 254, "Veracruz": 2126, "Yucatán": 1032, "Zacatecas": 351,
+}
+
+# Derived national totals
+_SENASICA_NATIONAL_JUNE = sum(SENASICA_JUNE_2025.values())   # 19,675
+_SENASICA_NATIONAL_DEC  = sum(SENASICA_DEC_2025.values())    # 31,112
+_SENASICA_NATIONAL_SURGE = (_SENASICA_NATIONAL_DEC - _SENASICA_NATIONAL_JUNE) / _SENASICA_NATIONAL_JUNE  # +58.1%
+
+# Querétaro slice (for backward compatibility)
+SENASICA_QRO_UNITS = {
+    "2025-06": SENASICA_JUNE_2025["Querétaro"],   # 659
+    "2025-12": SENASICA_DEC_2025["Querétaro"],    # 958
+}
+
+_SENASICA_BASELINE_UNITS = 420        # estimated Querétaro pre-2024 normal
 _TONS_PER_UNIT = 14_000 / _SENASICA_BASELINE_UNITS   # ≈ 33 tons/unit/month
 
 
 def _synthetic_production(idx: pd.DatetimeIndex) -> np.ndarray:
     """
-    Querétaro egg production proxy (tons/month), anchored to real SENASICA data:
-      June 2025  → 659 registered units
-      Dec  2025  → 958 registered units  (+45.4 % in 6 months)
-    All other months interpolated/extrapolated from those anchors.
+    Querétaro egg production proxy (tons/month), calibrated to real SENASICA national data:
+      June 2025 national total : 19,675 units across 32 states
+      Dec  2025 national total : 31,112 units → national surge +58.1%
+      Querétaro specifically   : 659 → 958 (+45.4%) — below national average
+    Uses national surge rate (stronger signal) for Dec 2025 anchor.
+    Interpolates/extrapolates all other months from those anchors.
     Replace with real SIAP tonnage data via the sidebar uploader if available.
     """
     rng = np.random.default_rng(77)
@@ -271,14 +305,21 @@ def _synthetic_production(idx: pd.DatetimeIndex) -> np.ndarray:
             units = 550 + progress * (659 - 550)
 
         elif yr == 2025 and 6 < mo < 12:
-            # Interpolate between real anchors: 659 (Jun) → 958 (Dec)
+            # Interpolate Jun→Dec using NATIONAL surge (+58.1%), not just QRO (+45.4%)
+            # National avg per state: 615 Jun → 972 Dec
+            # Scale to QRO base: 659 × 1.581 = 1,042 implied Dec anchor
+            dec_anchor = 659 * (1 + _SENASICA_NATIONAL_SURGE)
             progress = (mo - 6) / 6.0
-            units = 659 + progress * (958 - 659)
+            units = 659 + progress * (dec_anchor - 659)
+
+        elif yr == 2025 and mo == 12:
+            units = 659 * (1 + _SENASICA_NATIONAL_SURGE)   # ≈ 1,042 (national-weighted)
 
         else:
             # 2026+: marginal farm exits as prices stay low; gradual correction
+            dec_anchor = 659 * (1 + _SENASICA_NATIONAL_SURGE)
             months_past_dec25 = (yr - 2025) * 12 + max(mo - 12, 0)
-            units = max(958 * (0.88 ** (months_past_dec25 / 12)), 650)
+            units = max(dec_anchor * (0.88 ** (months_past_dec25 / 12)), 650)
 
         noise = rng.normal(0, 12)
         arr[i] = max((units + noise) * _TONS_PER_UNIT, 14_000 * 0.5)
