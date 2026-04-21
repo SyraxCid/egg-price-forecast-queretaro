@@ -79,6 +79,26 @@ with st.sidebar:
     st.markdown("### Scenario")
     scenario_name = st.selectbox("Stress scenario", list(SCENARIOS.keys()))
 
+    st.markdown("### 🐔 Supply pressure")
+    supply_pressure = st.slider(
+        "Market oversupply vs. normal (%)",
+        min_value=-20, max_value=50, value=20, step=5,
+        help=(
+            "Your field estimate of how much above or below normal "
+            "current egg supply is in Querétaro.\n\n"
+            "0% = balanced market.\n"
+            "+20% = ~20% more farms/supply than normal (today's situation).\n"
+            "+50% = extreme saturation.\n"
+            "Negative = undersupply / shortage."
+        )
+    )
+    if supply_pressure > 0:
+        st.caption(f"⬇️ Applying **+{supply_pressure}% supply** — pushes forecast down")
+    elif supply_pressure < 0:
+        st.caption(f"⬆️ Applying **{supply_pressure}% supply** — pushes forecast up")
+    else:
+        st.caption("Supply neutral — no adjustment applied")
+
     st.markdown("### Production cycle lag")
     pullet_weeks = st.slider(
         "Weeks from chick purchase to first egg", 16, 22, 18,
@@ -497,13 +517,23 @@ with tab2:
 with tab3:
     st.subheader(f"12-Month forecast — scenario: {scenario_name}")
 
-    shocks = SCENARIOS[scenario_name]
-    if shocks:
-        shock_text = ", ".join(
-            [f"{k.replace('_', ' ')} {'+' if v > 0 else ''}{v*100:.0f}%"
-             for k, v in shocks.items()]
-        )
-        st.info(f"Active shocks: **{shock_text}**")
+    shocks = dict(SCENARIOS[scenario_name])   # copy so we don't mutate the global
+
+    # Merge manual supply pressure into shocks
+    if supply_pressure != 0 and "egg_production_tons" in df.columns:
+        shocks["egg_production_tons"] = supply_pressure / 100
+
+    info_parts = []
+    if SCENARIOS[scenario_name]:
+        info_parts.append(", ".join(
+            f"{k.replace('_', ' ')} {'+' if v > 0 else ''}{v*100:.0f}%"
+            for k, v in SCENARIOS[scenario_name].items()
+        ))
+    if supply_pressure != 0:
+        direction = "oversupply" if supply_pressure > 0 else "undersupply"
+        info_parts.append(f"supply pressure {supply_pressure:+d}% ({direction})")
+    if info_parts:
+        st.info(f"Active adjustments: **{' · '.join(info_parts)}**")
 
     with st.spinner("Running VAR forecast..."):
         fc_result = forecast_12m(df, scenario_shocks=shocks or None)
@@ -630,9 +660,14 @@ with tab3:
 # ════════════════════════════════════════════════════════════════════════════════
 with tab4:
     st.subheader("Hedge signals & recommendations")
+    supply_label = (
+        f" · Supply pressure: **{supply_pressure:+d}%**"
+        if supply_pressure != 0 else ""
+    )
     st.markdown(
         f"Based on scenario: **{scenario_name}** · "
         f"Production cycle: **{pullet_weeks} weeks**"
+        f"{supply_label}"
     )
 
     with st.spinner("Generating hedge signals..."):
