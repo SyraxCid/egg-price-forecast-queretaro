@@ -181,13 +181,9 @@ for col_widget, sym in zip(live_cols, _TICKER_ORDER):
 st.caption(f"Last fetched: {fetched_at} local time · Source: Yahoo Finance · Auto-refreshes every 60 s")
 st.markdown("---")
 
-# ── Key metrics bar ───────────────────────────────────────────────────────────
+# ── Key metrics bar — egg prices only (commodities shown in live ticker above) ─
 last_producer = df["egg_producer"].dropna().iloc[-1]
 last_retail   = df["egg_retail"].dropna().iloc[-1]
-last_corn     = df.get("corn_mxn", df.get("corn_usd", pd.Series())).dropna()
-last_corn_val = last_corn.iloc[-1] if not last_corn.empty else None
-last_oil      = df["oil_wti"].dropna().iloc[-1] if "oil_wti" in df.columns else None
-last_mxn      = df["mxn_usd"].dropna().iloc[-1] if "mxn_usd" in df.columns else None
 
 prev = df.iloc[-4:-1]   # 3 months ago for delta
 
@@ -197,21 +193,11 @@ def delta_pct(current, col):
         return None
     return f"{((current - s.iloc[0]) / s.iloc[0]) * 100:+.1f}%"
 
-m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Egg (producer)",  f"${last_producer:.2f} MXN/kg",
+m1, m2 = st.columns(2)
+m1.metric("Egg (producer) — SNIIM avg", f"${last_producer:.2f} MXN/kg",
           delta_pct(last_producer, "egg_producer"))
-m2.metric("Egg (retail)",    f"${last_retail:.2f} MXN/kg",
+m2.metric("Egg (retail) — SNIIM avg",   f"${last_retail:.2f} MXN/kg",
           delta_pct(last_retail, "egg_retail"))
-if last_corn_val:
-    col = "corn_mxn" if "corn_mxn" in df.columns else "corn_usd"
-    m3.metric("Corn (MXN/bu)" if col == "corn_mxn" else "Corn (USD/bu)",
-              f"${last_corn_val:.1f}", delta_pct(last_corn_val, col))
-if last_oil:
-    m4.metric("Oil WTI (USD/bbl)", f"${last_oil:.1f}",
-              delta_pct(last_oil, "oil_wti"))
-if last_mxn:
-    m5.metric("MXN/USD", f"{last_mxn:.2f}",
-              delta_pct(last_mxn, "mxn_usd"))
 
 st.markdown("---")
 
