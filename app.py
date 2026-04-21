@@ -13,7 +13,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from data_fetcher import build_dataset, fetch_live_prices, LIVE_TICKERS
+from data_fetcher import build_dataset, fetch_live_prices, LIVE_TICKERS, SENASICA_QRO_UNITS
 from model import (
     adf_summary, run_granger, compute_irf,
     forecast_12m, run_all_scenarios, SCENARIOS
@@ -80,15 +80,20 @@ with st.sidebar:
     scenario_name = st.selectbox("Stress scenario", list(SCENARIOS.keys()))
 
     st.markdown("### 🐔 Supply pressure")
+    st.caption(
+        "📋 **SENASICA real data (Querétaro):**  \n"
+        "Jun 2025 → **659 units** | Dec 2025 → **958 units** (+45%)"
+    )
     supply_pressure = st.slider(
         "Market oversupply vs. normal (%)",
-        min_value=-20, max_value=50, value=20, step=5,
+        min_value=-20, max_value=50, value=45, step=5,
         help=(
-            "Your field estimate of how much above or below normal "
-            "current egg supply is in Querétaro.\n\n"
-            "0% = balanced market.\n"
-            "+20% = ~20% more farms/supply than normal (today's situation).\n"
-            "+50% = extreme saturation.\n"
+            "Calibrated from real SENASICA data:\n"
+            "Querétaro registered poultry units grew +45% in just 6 months "
+            "(659 in Jun 2025 → 958 in Dec 2025).\n\n"
+            "0%  = balanced / normal market.\n"
+            "+45% = documented saturation level (default).\n"
+            "+50% = extreme oversupply.\n"
             "Negative = undersupply / shortage."
         )
     )
@@ -356,14 +361,50 @@ with tab1:
                        hovertemplate="Price: $%{y:.2f}<extra></extra>"),
             secondary_y=True
         )
+        # Add real SENASICA data markers
+        senasica_dates  = [pd.Timestamp(f"{k}-01") for k in SENASICA_QRO_UNITS]
+        senasica_labels = [f"SENASICA: {v} units" for v in SENASICA_QRO_UNITS.values()]
+        senasica_y      = [
+            df.loc[d, "egg_production_tons"] if d in df.index else None
+            for d in senasica_dates
+        ]
+        fig_prod.add_trace(
+            go.Scatter(
+                x=senasica_dates, y=senasica_y,
+                mode="markers+text",
+                marker=dict(color="#E74C3C", size=12, symbol="diamond"),
+                text=senasica_labels,
+                textposition="top center",
+                textfont=dict(size=10, color="#E74C3C"),
+                name="Real SENASICA data",
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
         fig_prod.update_layout(
-            title="Supply glut vs. price — bars rise before price falls",
-            template="plotly_dark", height=380,
+            title="Supply glut vs. price — bars rise before price falls (🔴 = real SENASICA data)",
+            template="plotly_dark", height=400,
             legend=dict(orientation="h", y=-0.2),
         )
-        fig_prod.update_yaxes(title_text="Tons / month", secondary_y=False)
+        fig_prod.update_yaxes(title_text="Tons / month (proxy)", secondary_y=False)
         fig_prod.update_yaxes(title_text="MXN / kg", secondary_y=True)
         st.plotly_chart(fig_prod, use_container_width=True)
+
+        # SENASICA summary table
+        senasica_rows = []
+        prev_val = None
+        for k, v in SENASICA_QRO_UNITS.items():
+            chg = f"+{((v-prev_val)/prev_val*100):.1f}%" if prev_val else "—"
+            senasica_rows.append({"Snapshot": k, "Registered units (Querétaro)": v, "Change": chg})
+            prev_val = v
+        st.dataframe(
+            pd.DataFrame(senasica_rows), use_container_width=True, hide_index=True
+        )
+        st.caption(
+            "Source: SENASICA via datos.gob.mx · "
+            "Registered poultry production units, all functions. "
+            "Tonnage proxy = units × estimated avg. flock output."
+        )
 
     # ADF stationarity
     with st.expander("Stationarity tests (ADF)"):

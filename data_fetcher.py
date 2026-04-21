@@ -215,37 +215,75 @@ def generate_egg_prices(commodities: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ── Real SENASICA anchor data ─────────────────────────────────────────────────
+# Source: datos.gob.mx / SENASICA "Unidades de producción avícola registradas"
+# Querétaro registered poultry production units — two published snapshots.
+SENASICA_QRO_UNITS = {
+    "2025-06": 659,   # June 2025  (archivo: 62_unidades-produccion-aves.csv)
+    "2025-12": 958,   # Dec  2025  (archivo: up_aves_enero_diciembre.csv)
+}
+_SENASICA_BASELINE_UNITS = 420   # estimated pre-2024 normal level (2019-2023)
+_TONS_PER_UNIT = 14_000 / _SENASICA_BASELINE_UNITS   # ≈ 33 tons/unit/month
+
+
 def _synthetic_production(idx: pd.DatetimeIndex) -> np.ndarray:
     """
-    Synthetic Querétaro monthly egg production (tons).
-    Calibrated to the saturation narrative: small-farm investment surge
-    at 2024 price peak → supply glut hitting market Jan–mid 2025.
-    Replace with real SIAP data via the sidebar uploader.
+    Querétaro egg production proxy (tons/month), anchored to real SENASICA data:
+      June 2025  → 659 registered units
+      Dec  2025  → 958 registered units  (+45.4 % in 6 months)
+    All other months interpolated/extrapolated from those anchors.
+    Replace with real SIAP tonnage data via the sidebar uploader if available.
     """
     rng = np.random.default_rng(77)
     n   = len(idx)
-    base = 14_000.0   # approximate Querétaro baseline (tons/month)
-    arr  = np.empty(n)
+    arr = np.empty(n)
+
     for i, ts in enumerate(idx):
         yr, mo = ts.year, ts.month
-        if yr < 2022:
-            mult = 1.00
+        key = f"{yr}-{mo:02d}"
+
+        if key == "2025-06":
+            units = 659.0                              # real SENASICA anchor
+
+        elif key == "2025-12":
+            units = 958.0                              # real SENASICA anchor
+
+        elif yr < 2022:
+            units = _SENASICA_BASELINE_UNITS           # stable pre-Ukraine baseline
+
         elif yr == 2022:
-            mult = 0.97   # Ukraine feed-cost shock → marginal farm exits
+            units = _SENASICA_BASELINE_UNITS * 0.97   # Ukraine feed shock → marginal exits
+
         elif yr == 2023:
-            mult = 1.02
+            units = _SENASICA_BASELINE_UNITS * 1.02
+
         elif yr == 2024 and mo <= 6:
-            mult = 1.06   # rising prices → chick purchases begin
+            units = _SENASICA_BASELINE_UNITS * 1.08   # rising prices, chick purchases begin
+
         elif yr == 2024 and mo > 6:
-            mult = 1.13   # first wave of new farms coming online
-        elif yr == 2025 and mo <= 6:
-            mult = 1.23   # peak saturation — all small farms producing
-        elif yr == 2025 and mo > 6:
-            mult = 1.18   # some marginal exits, still elevated
-        else:             # 2026
-            mult = 1.12
-        arr[i] = base * mult + rng.normal(0, 350)
-    return np.maximum(arr, base * 0.6)
+            # Ramp from ~462 (Jul 2024) toward 659 (Jun 2025) over 11 months
+            progress = (mo - 6) / 11.0
+            units = 462 + progress * (659 - 462)
+
+        elif yr == 2025 and mo < 6:
+            # Ramp from Jan 2025 estimate (550) toward 659 (Jun 2025)
+            progress = mo / 6.0
+            units = 550 + progress * (659 - 550)
+
+        elif yr == 2025 and 6 < mo < 12:
+            # Interpolate between real anchors: 659 (Jun) → 958 (Dec)
+            progress = (mo - 6) / 6.0
+            units = 659 + progress * (958 - 659)
+
+        else:
+            # 2026+: marginal farm exits as prices stay low; gradual correction
+            months_past_dec25 = (yr - 2025) * 12 + max(mo - 12, 0)
+            units = max(958 * (0.88 ** (months_past_dec25 / 12)), 650)
+
+        noise = rng.normal(0, 12)
+        arr[i] = max((units + noise) * _TONS_PER_UNIT, 14_000 * 0.5)
+
+    return arr
 
 
 def build_dataset() -> tuple[pd.DataFrame, bool]:
