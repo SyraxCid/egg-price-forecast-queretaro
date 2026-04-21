@@ -228,6 +228,48 @@ def build_dataset() -> tuple[pd.DataFrame, bool]:
     return df, is_live
 
 
+# ── Live price snapshot ──────────────────────────────────────────────────────
+
+LIVE_TICKERS = {
+    "ZC=F":  ("Corn",     "USD/bu",  1/100),   # cents/bushel → USD/bushel
+    "ZS=F":  ("Soy",      "USD/bu",  1/100),
+    "ZW=F":  ("Wheat",    "USD/bu",  1/100),
+    "CL=F":  ("Oil WTI",  "USD/bbl", 1),
+    "MXN=X": ("MXN/USD",  "MXN",     1),
+}
+
+
+def fetch_live_prices() -> dict:
+    """
+    Returns {ticker: {label, price, prev_close, change_pct, change_abs, unit}}
+    for each ticker in LIVE_TICKERS. Falls back gracefully on failure.
+    """
+    from datetime import datetime
+    results = {}
+    for sym, (label, unit, factor) in LIVE_TICKERS.items():
+        entry = {"label": label, "unit": unit, "price": None,
+                 "prev_close": None, "change_pct": None, "change_abs": None,
+                 "error": None}
+        try:
+            t = yf.Ticker(sym)
+            fi = t.fast_info
+            price     = fi.last_price * factor
+            prev      = fi.previous_close * factor
+            chg_abs   = price - prev
+            chg_pct   = chg_abs / prev * 100 if prev else 0.0
+            entry.update({
+                "price":      price,
+                "prev_close": prev,
+                "change_abs": chg_abs,
+                "change_pct": chg_pct,
+            })
+        except Exception as exc:
+            entry["error"] = str(exc)
+        results[sym] = entry
+    results["_fetched_at"] = datetime.now().strftime("%H:%M:%S")
+    return results
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _normalize(series: pd.Series) -> pd.Series:

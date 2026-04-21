@@ -13,7 +13,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
 
-from data_fetcher import build_dataset
+from data_fetcher import build_dataset, fetch_live_prices, LIVE_TICKERS
 from model import (
     adf_summary, run_granger, compute_irf,
     forecast_12m, run_all_scenarios, SCENARIOS
@@ -133,6 +133,52 @@ with col_badge:
         unsafe_allow_html=True
     )
 
+st.markdown("---")
+
+# ── Live market prices ────────────────────────────────────────────────────────
+@st.cache_data(ttl=60, show_spinner=False)
+def load_live_prices():
+    return fetch_live_prices()
+
+lp_header, lp_refresh = st.columns([8, 1])
+with lp_header:
+    st.markdown("### 📡 Live Market Prices")
+with lp_refresh:
+    if st.button("🔄 Refresh", help="Refresh live prices (auto-updates every 60 s)"):
+        st.cache_data.clear()
+        st.rerun()
+
+live = load_live_prices()
+fetched_at = live.get("_fetched_at", "—")
+
+_TICKER_ORDER = ["ZC=F", "ZS=F", "ZW=F", "CL=F", "MXN=X"]
+live_cols = st.columns(len(_TICKER_ORDER))
+
+for col_widget, sym in zip(live_cols, _TICKER_ORDER):
+    entry = live.get(sym, {})
+    label = entry.get("label", sym)
+    unit  = entry.get("unit", "")
+    if entry.get("error") or entry.get("price") is None:
+        col_widget.metric(f"{label} ({unit})", "N/A", help="Could not fetch live data")
+        continue
+    price     = entry["price"]
+    chg_abs   = entry["change_abs"]
+    chg_pct   = entry["change_pct"]
+    # Format price based on unit
+    if unit == "MXN":
+        price_str = f"{price:.4f}"
+    elif unit == "USD/bbl":
+        price_str = f"${price:.2f}"
+    else:
+        price_str = f"${price:.2f}"
+    delta_str = f"{chg_abs:+.2f} ({chg_pct:+.2f}%)"
+    col_widget.metric(
+        label=f"{label}  ·  {unit}",
+        value=price_str,
+        delta=delta_str,
+    )
+
+st.caption(f"Last fetched: {fetched_at} local time · Source: Yahoo Finance · Auto-refreshes every 60 s")
 st.markdown("---")
 
 # ── Key metrics bar ───────────────────────────────────────────────────────────
