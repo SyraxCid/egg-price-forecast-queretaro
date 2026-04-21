@@ -17,13 +17,14 @@ warnings.filterwarnings("ignore")
 VAR_COLS = [
     "egg_producer",
     "egg_retail",
+    "egg_production_tons",  # supply variable — determined ~5 months prior (biological lag)
     "corn_mxn",
     "soy_mxn",
     "oil_wti",
     "mxn_usd",
 ]
 
-GRANGER_TARGETS = ["corn_mxn", "soy_mxn", "wheat_mxn", "oil_wti", "mxn_usd"]
+GRANGER_TARGETS = ["egg_production_tons", "corn_mxn", "soy_mxn", "wheat_mxn", "oil_wti", "mxn_usd"]
 MAX_LAGS = 12      # monthly data: up to 12-month lag search
 FORECAST_STEPS = 12
 

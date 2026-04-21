@@ -215,15 +215,54 @@ def generate_egg_prices(commodities: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _synthetic_production(idx: pd.DatetimeIndex) -> np.ndarray:
+    """
+    Synthetic Querétaro monthly egg production (tons).
+    Calibrated to the saturation narrative: small-farm investment surge
+    at 2024 price peak → supply glut hitting market Jan–mid 2025.
+    Replace with real SIAP data via the sidebar uploader.
+    """
+    rng = np.random.default_rng(77)
+    n   = len(idx)
+    base = 14_000.0   # approximate Querétaro baseline (tons/month)
+    arr  = np.empty(n)
+    for i, ts in enumerate(idx):
+        yr, mo = ts.year, ts.month
+        if yr < 2022:
+            mult = 1.00
+        elif yr == 2022:
+            mult = 0.97   # Ukraine feed-cost shock → marginal farm exits
+        elif yr == 2023:
+            mult = 1.02
+        elif yr == 2024 and mo <= 6:
+            mult = 1.06   # rising prices → chick purchases begin
+        elif yr == 2024 and mo > 6:
+            mult = 1.13   # first wave of new farms coming online
+        elif yr == 2025 and mo <= 6:
+            mult = 1.23   # peak saturation — all small farms producing
+        elif yr == 2025 and mo > 6:
+            mult = 1.18   # some marginal exits, still elevated
+        else:             # 2026
+            mult = 1.12
+        arr[i] = base * mult + rng.normal(0, 350)
+    return np.maximum(arr, base * 0.6)
+
+
 def build_dataset() -> tuple[pd.DataFrame, bool]:
     """
     Returns (full_monthly_df, is_live_data).
-    Columns: egg_producer, egg_retail, corn_usd, soy_usd, wheat_usd,
+    Columns: egg_producer, egg_retail, egg_production_tons,
+             corn_usd, soy_usd, wheat_usd,
              oil_wti, mxn_usd, corn_mxn, soy_mxn, wheat_mxn, oil_mxn
     """
     commodities, is_live = fetch_commodities()
     eggs = generate_egg_prices(commodities)
-    df = pd.concat([eggs, commodities], axis=1).dropna(how="all")
+    prod = pd.Series(
+        _synthetic_production(commodities.index),
+        index=commodities.index,
+        name="egg_production_tons",
+    )
+    df = pd.concat([eggs, prod, commodities], axis=1).dropna(how="all")
     df = df.ffill().bfill()
     return df, is_live
 

@@ -64,9 +64,14 @@ with st.sidebar:
 
     st.markdown("### Data")
     uploaded = st.file_uploader(
-        "Upload custom egg price CSV",
+        "Upload egg price CSV (SNIIM)",
         type=["csv"],
         help="Columns: date (YYYY-MM-DD), egg_producer, egg_retail (MXN/kg)"
+    )
+    uploaded_prod = st.file_uploader(
+        "Upload production CSV (SIAP)",
+        type=["csv"],
+        help="Columns: date (YYYY-MM-DD), egg_production_tons — from nube.siap.gob.mx"
     )
     use_live = st.checkbox("Fetch live commodity data (requires internet)", value=True)
 
@@ -114,6 +119,23 @@ if uploaded is not None:
         st.sidebar.success(f"✅ Datos cargados: {len(df)} meses ({df.index.min().strftime('%b %Y')} – {df.index.max().strftime('%b %Y')})")
     except Exception as e:
         st.sidebar.error(f"No se pudo leer el archivo: {e}")
+
+# Override production data with uploaded SIAP file if provided
+if uploaded_prod is not None:
+    try:
+        prod_df = pd.read_csv(uploaded_prod, parse_dates=["date"], index_col="date")
+        prod_df.index = pd.to_datetime(prod_df.index).to_period("M").to_timestamp()
+        if "egg_production_tons" in prod_df.columns:
+            df = df.copy()
+            df["egg_production_tons"] = prod_df["egg_production_tons"].reindex(df.index).ffill().bfill()
+            st.sidebar.success(
+                f"✅ Producción SIAP cargada: {prod_df['egg_production_tons'].notna().sum()} meses "
+                f"({prod_df.index.min().strftime('%b %Y')} – {prod_df.index.max().strftime('%b %Y')})"
+            )
+        else:
+            st.sidebar.error("CSV de producción debe tener columna 'egg_production_tons'")
+    except Exception as e:
+        st.sidebar.error(f"No se pudo leer producción: {e}")
 
 st.session_state.df = df
 
@@ -294,9 +316,38 @@ with tab1:
     )
     st.plotly_chart(fig_corr, use_container_width=True)
 
+    # Supply pressure chart
+    if "egg_production_tons" in df.columns:
+        st.markdown("#### Egg supply — production volume vs. price")
+        prod_label = "📊 Real SIAP data" if uploaded_prod is not None else "⚠️ Synthetic estimate — upload SIAP CSV for real data"
+        st.caption(prod_label)
+        fig_prod = make_subplots(specs=[[{"secondary_y": True}]])
+        fig_prod.add_trace(
+            go.Bar(x=df.index, y=df["egg_production_tons"],
+                   name="Production (tons/month)",
+                   marker_color="rgba(41,128,185,0.5)",
+                   hovertemplate="Production: %{y:,.0f} t<extra></extra>"),
+            secondary_y=False
+        )
+        fig_prod.add_trace(
+            go.Scatter(x=df.index, y=df["egg_producer"],
+                       name="Producer price (MXN/kg)",
+                       line=dict(color=BRAND_YELLOW, width=2.5),
+                       hovertemplate="Price: $%{y:.2f}<extra></extra>"),
+            secondary_y=True
+        )
+        fig_prod.update_layout(
+            title="Supply glut vs. price — bars rise before price falls",
+            template="plotly_dark", height=380,
+            legend=dict(orientation="h", y=-0.2),
+        )
+        fig_prod.update_yaxes(title_text="Tons / month", secondary_y=False)
+        fig_prod.update_yaxes(title_text="MXN / kg", secondary_y=True)
+        st.plotly_chart(fig_prod, use_container_width=True)
+
     # ADF stationarity
     with st.expander("Stationarity tests (ADF)"):
-        adf_cols = [c for c in ["egg_producer", "corn_mxn", "soy_mxn",
+        adf_cols = [c for c in ["egg_producer", "egg_production_tons", "corn_mxn", "soy_mxn",
                                  "oil_wti", "mxn_usd"] if c in df.columns]
         st.dataframe(adf_summary(df[adf_cols]), use_container_width=True, hide_index=True)
         st.caption("Non-stationary series are first-differenced before fitting the VAR model.")
