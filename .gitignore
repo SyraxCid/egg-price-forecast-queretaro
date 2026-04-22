@@ -17,3 +17,8 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local generated / session files — never commit
+MODEL_GUIDE.md
+make_guide.js
+.claude/settings.local.json

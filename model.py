@@ -4,6 +4,7 @@ VAR model, Granger causality, Impulse Response Functions,
 12-month forecast, and stress scenario simulation.
 """
 
+import logging
 import warnings
 import numpy as np
 import pandas as pd
@@ -11,6 +12,7 @@ from statsmodels.tsa.vector_ar.var_model import VAR
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
 
 warnings.filterwarnings("ignore")
+logger = logging.getLogger(__name__)
 
 # Variables included in the VAR system (order matters for IRF Cholesky)
 # egg_producer is placed first so shocks to other variables flow into it.
@@ -272,5 +274,5 @@ def run_all_scenarios(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
             out = forecast_12m(df, scenario_shocks=shocks)
             results[name] = out["forecast_df"]
         except Exception as e:
-            print(f"Scenario '{name}' failed: {e}")
+            logger.warning("Scenario '%s' failed: %s", name, e)
     return results
